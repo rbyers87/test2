@@ -343,20 +343,20 @@
             <div class="form-row">
                 <div class="form-group">
                     <label for="caseName">Case Name <span class="required-star">*</span></label>
-                    <input type="text" id="caseName" placeholder="e.g. Terry v. Ohio" required />
+                    <input type="text" id="caseName" name="caseName" placeholder="e.g. Terry v. Ohio" required />
                 </div>
                 <div class="form-group">
                     <label for="finalCourt">Final Court</label>
-                    <input type="text" id="finalCourt" placeholder="e.g. Supreme Court of the United States" />
+                    <input type="text" id="finalCourt" name="finalCourt" placeholder="e.g. Supreme Court of the United States" />
                 </div>
             </div>
             <div class="form-group">
                 <label for="outcome">Outcome / Ruling <span class="required-star">*</span></label>
-                <textarea id="outcome" rows="2" placeholder="Briefly describe the holding or principle…" required></textarea>
+                <textarea id="outcome" name="outcome" rows="2" placeholder="Briefly describe the holding or principle…" required></textarea>
             </div>
             <div class="form-group">
                 <label for="source">Source / Citation</label>
-                <input type="text" id="source" placeholder="e.g. 392 U.S. 1 (1968)" />
+                <input type="text" id="source" name="source" placeholder="e.g. 392 U.S. 1 (1968)" />
             </div>
             <button type="submit" class="submit-btn">Submit Suggestion</button>
             <div id="formStatus" class="form-status"></div>
@@ -449,44 +449,78 @@
 
             grid.innerHTML = html;
 
-            // ─── FORM SUBMISSION ────────────────────────────────────
+            // ─── FORM SUBMISSION (Formspree + localStorage) ──────
             const form = document.getElementById('submitForm');
             const status = document.getElementById('formStatus');
 
-            form.addEventListener('submit', function(e) {
+            form.addEventListener('submit', async function(e) {
                 e.preventDefault();
 
-                const name = document.getElementById('caseName').value.trim();
-                const court = document.getElementById('finalCourt').value.trim();
+                const caseName = document.getElementById('caseName').value.trim();
+                const finalCourt = document.getElementById('finalCourt').value.trim();
                 const outcome = document.getElementById('outcome').value.trim();
                 const source = document.getElementById('source').value.trim();
 
-                if (!name || !outcome) {
+                // Validate required fields
+                if (!caseName || !outcome) {
                     status.className = 'form-status error';
                     status.textContent = '⚠️ Please fill in the required fields (Case Name and Outcome).';
                     return;
                 }
 
-                const submission = {
-                    caseName: name,
-                    finalCourt: court || 'Not provided',
+                // Disable button to prevent double-submission
+                const submitBtn = form.querySelector('.submit-btn');
+                submitBtn.disabled = true;
+                submitBtn.textContent = 'Submitting...';
+
+                // Build data object
+                const data = {
+                    caseName: caseName,
+                    finalCourt: finalCourt || 'Not provided',
                     outcome: outcome,
                     source: source || 'Not provided',
                     submittedAt: new Date().toISOString()
                 };
 
-                let submissions = JSON.parse(localStorage.getItem('caseLawSubmissions') || '[]');
-                submissions.push(submission);
-                localStorage.setItem('caseLawSubmissions', JSON.stringify(submissions));
+                try {
+                    // ── 1. Send to Formspree ──
+                    const response = await fetch('https://formspree.io/f/xykrnkaq', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Accept': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
 
-                status.className = 'form-status success';
-                status.textContent = '✅ Thank you! Your case suggestion has been submitted successfully.';
-                form.reset();
+                    if (response.ok) {
+                        // ── 2. Success – also save to localStorage as backup ──
+                        let submissions = JSON.parse(localStorage.getItem('caseLawSubmissions') || '[]');
+                        submissions.push(data);
+                        localStorage.setItem('caseLawSubmissions', JSON.stringify(submissions));
 
-                setTimeout(() => {
-                    status.className = 'form-status';
-                    status.textContent = '';
-                }, 8000);
+                        status.className = 'form-status success';
+                        status.textContent = '✅ Thank you! Your case suggestion has been submitted successfully. We will review it shortly.';
+                        form.reset();
+                    } else {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Formspree submission failed.');
+                    }
+                } catch (error) {
+                    console.error('Submission error:', error);
+                    status.className = 'form-status error';
+                    status.textContent = '❌ Something went wrong. Please try again later. (Error: ' + error.message + ')';
+                } finally {
+                    // Re-enable button
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = 'Submit Suggestion';
+
+                    // Auto-clear status after 10 seconds
+                    setTimeout(() => {
+                        status.className = 'form-status';
+                        status.textContent = '';
+                    }, 10000);
+                }
             });
 
             // ─── PWA: register service worker ──────────────────────
